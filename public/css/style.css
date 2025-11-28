@@ -1,0 +1,24 @@
+span.error{
+    font-size: 15px;
+    width:100%;
+    color: #dc3545;
+    margin-top: .25rem;
+}
+.popup-loader{
+    text-align: center;    
+    padding: 20px;
+}
+.popup-loader img{
+    height: 100px;
+    width: 100px;
+    text-align: center;    
+}
+.alert{
+    margin-bottom: 0px;
+}
+.first-letter-uppercase:first-letter{
+    text-transform: uppercase;
+}
+#gender-error{
+    display: block;
+}
