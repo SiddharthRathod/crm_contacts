@@ -26,6 +26,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('contact-add', [ContactController::class, 'addContact'])->name('contact.add'); 
     Route::post('store', [ContactController::class, 'store'])->name('contact.store');
     Route::post('check-contact-email', [ContactController::class, 'checkContactEmail'])->name('check-contact-email');
+    Route::post('contact/merge', [ContactController::class, 'merge'])->name('contact.merge');
     Route::get('contact/{id}/show', [ContactController::class, 'show'])->name('contact.show'); 
     Route::get('contact/{id}/edit', [ContactController::class, 'editContact'])->name('contact.edit'); 
     Route::get('contact/{contact}', [ContactController::class, 'show'])->name('contact.show');

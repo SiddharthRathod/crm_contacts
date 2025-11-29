@@ -10,8 +10,13 @@ class ContactCustomFieldValue extends Model
     use HasFactory;
 
     protected $fillable = [
-        'contact_id', 'custom_field_definition_id', 'value'
+        'contact_id', 'custom_field_definition_id', 'value', 'source_contact_id'
     ];
+
+    public function sourceContact()
+    {
+        return $this->belongsTo(Contact::class, 'source_contact_id');
+    }
 
     public function definition()
     {

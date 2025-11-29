@@ -13,6 +13,20 @@ class Contact extends Model
         'name', 'email', 'phone', 'gender', 'profile_image', 'additional_file'
     ];
 
+    protected $casts = [
+        'is_merged' => 'boolean',
+    ];
+
+    public function mergedTo()
+    {
+        return $this->belongsTo(Contact::class, 'merged_to_id');
+    }
+
+    public function mergedFrom()
+    {
+        return $this->hasMany(Contact::class, 'merged_to_id');
+    }
+
     protected $appends = [];
 
     public function customFieldValues()

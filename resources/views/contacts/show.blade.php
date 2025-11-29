@@ -1,5 +1,5 @@
 <x-app-layout>
-    @section('title',"Add Contact")
+    @section('title',"Show Contact")
     <div class="container">
         <div class="row justify-content-center">
             <div class="col-md-8">
@@ -9,6 +9,9 @@
                     <div class="card-body">                        
                         
                             <h5>Contact #{{ $contact['id'] }}</h5>
+                            @if(!empty($contact['is_merged']))
+                                <div class="alert alert-secondary">This contact was merged into contact #{{ $contact['merged_to_id'] }} and marked as merged.</div>
+                            @endif
                             <div class="row mb-3">
                                 <div class="col-md-3 font-weight-bold">Name</div>
                                 <div class="col-md-9">{{ $contact['name'] }}</div>
@@ -52,15 +55,22 @@
 
                             <!-- Dynamic Custom Fields -->
                             @php
-                                $customDefinitions = $contact['custom_fields'];                                
+                                $customFields = $contact['custom_fields'] ?? [];
                             @endphp
-                            @if($customDefinitions->count())
+                            @if(count($customFields))
                                 <h5 class="mb-3">Custom Fields</h5>
-                                @foreach($customDefinitions as $key => $value)
+                                @foreach($customFields as $key => $list)
+                                    @foreach($list as $item)
                                     <div class="row mb-3">
                                         <div class="col-md-3 font-weight-bold">{{ $key }}</div>
-                                        <div class="col-md-9">{{ $value }}</div>
-                                    </div>                                    
+                                        <div class="col-md-9">
+                                            {{ $item['value'] }}
+                                            @if(!empty($item['source_contact_id']))
+                                                <span class="text-muted small">(from contact #{{ $item['source_contact_id'] }})</span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                    @endforeach
                                 @endforeach
                             @endif
                             

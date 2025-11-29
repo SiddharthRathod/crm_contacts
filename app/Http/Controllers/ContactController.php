@@ -33,7 +33,9 @@ class ContactController extends Controller
             return view('contacts._rows', compact('contacts'));
         }
 
-        return view('contacts.index', compact('contacts', 'customDefinitions'));
+        $unMergedContacts = Contact::where('is_merged', false)->get();
+
+        return view('contacts.index', compact('contacts', 'customDefinitions', 'unMergedContacts'));
     }
 
     public function addContact() {
@@ -102,12 +104,17 @@ class ContactController extends Controller
         $contact = Contact::findOrFail($id);
         $contact->load('customFieldValues.definition');
         $contactArray = $contact->toArray();
-        $customs = $contact->customFieldValues->mapWithKeys(function ($v) {
+        $customs = [];
+        foreach ($contact->customFieldValues as $v) {
             $name = $v->definition->name ?? $v->custom_field_definition_id;
-            return [$name => $v->value];
-        });
+            if (!isset($customs[$name])) $customs[$name] = [];
+            $customs[$name][] = ['value' => $v->value, 'source_contact_id' => $v->source_contact_id];
+        }
         $contactArray['custom_fields'] = $customs;
-        $contact = $contactArray;   
+        $contact = $contactArray;
+        if (request()->ajax()) {
+            return response()->json(['contact' => $contact]);
+        }
         return view('contacts.show', compact('contact'));
     }
 
@@ -117,11 +124,17 @@ class ContactController extends Controller
         $contact->load('customFieldValues.definition');
         $customDefinitions = CustomFieldDefinition::all();
         $contactArray = $contact->toArray();
-        $customs = $contact->customFieldValues->mapWithKeys(function ($v) {
+        $customsMap = [];
+        foreach ($contact->customFieldValues as $v) {
             $name = $v->definition->name ?? $v->custom_field_definition_id;
-            return [$name => $v->value];
-        });
-        $contactArray['custom_fields'] = $customs;
+            if (!isset($customsMap[$name])) {
+                $customsMap[$name] = $v->value;
+            }
+            if (!isset($customsMap[$v->custom_field_definition_id])) {
+                $customsMap[$v->custom_field_definition_id] = $v->value;
+            }
+        }
+        $contactArray['custom_fields'] = $customsMap;
         $contact = $contactArray;   
         return view('contacts.edit', compact('contact', 'customDefinitions'));
     }
@@ -179,6 +192,126 @@ class ContactController extends Controller
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'Failed to update contact: ' . $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Merge a secondary contact into a master contact.
+     */
+    public function merge(Request $request)
+    {
+        $data = $request->validate([
+            'master_id' => 'required|integer|exists:contacts,id',
+            'secondary_id' => 'required|integer|exists:contacts,id',
+            'append_values' => 'nullable|boolean'
+        ]);
+
+        $masterId = $data['master_id'];
+        $secondaryId = $data['secondary_id'];
+        $append = isset($data['append_values']) ? (bool)$data['append_values'] : true;
+
+        if ($masterId == $secondaryId) {
+            return response()->json(['success' => false, 'message' => 'Cannot merge a contact into itself.']);
+        }
+
+        $master = Contact::findOrFail($masterId);
+        $secondary = Contact::findOrFail($secondaryId);
+
+        // Helper to ensure alt custom field definitions exist
+        $ensureDef = function($name, $type = 'text') {
+            $def = CustomFieldDefinition::where('name', $name)->first();
+            if (!$def) {
+                $def = CustomFieldDefinition::create(['name' => $name, 'field_type' => $type, 'options' => null, 'is_required' => false]);
+            }
+            return $def;
+        };
+
+        // Emails: if master empty -> set master; else append as alternate
+        if (!empty($secondary->email)) {
+            if (empty($master->email)) {
+                $master->email = $secondary->email;
+            } elseif ($master->email !== $secondary->email) {
+                $def = $ensureDef('Alternate Email', 'text');
+                ContactCustomFieldValue::create([
+                    'contact_id' => $master->id,
+                    'custom_field_definition_id' => $def->id,
+                    'value' => $secondary->email,
+                    'source_contact_id' => $secondary->id,
+                ]);
+            }
+        }
+
+        // Phones
+        if (!empty($secondary->phone)) {
+            if (empty($master->phone)) {
+                $master->phone = $secondary->phone;
+            } elseif ($master->phone !== $secondary->phone) {
+                $def = $ensureDef('Alternate Phone', 'text');
+                ContactCustomFieldValue::create([
+                    'contact_id' => $master->id,
+                    'custom_field_definition_id' => $def->id,
+                    'value' => $secondary->phone,
+                    'source_contact_id' => $secondary->id,
+                ]);
+            }
+        }
+
+        // 3. Files merge
+        if (!empty($secondary->profile_image)) {
+            if (empty($master->profile_image)) {
+                $master->profile_image = $secondary->profile_image;
+            } else {
+                $def = $ensureDef('Alternate File', 'text');
+                ContactCustomFieldValue::create([
+                    'contact_id' => $master->id,
+                    'custom_field_definition_id' => $def->id,
+                    'value' => $secondary->profile_image,
+                    'source_contact_id' => $secondary->id,
+                ]);
+            }
+        }
+        if (!empty($secondary->additional_file)) {
+            if (empty($master->additional_file)) {
+                $master->additional_file = $secondary->additional_file;
+            } else {
+                $def = $ensureDef('Alternate File', 'text');
+                ContactCustomFieldValue::create([
+                    'contact_id' => $master->id,
+                    'custom_field_definition_id' => $def->id,
+                    'value' => $secondary->additional_file,
+                    'source_contact_id' => $secondary->id,
+                ]);
+            }
+        }
+
+        // Custom fields merge
+        $secValues = $secondary->customFieldValues()->get();
+        foreach ($secValues as $sv) {
+            $exists = $master->customFieldValues()->where('custom_field_definition_id', $sv->custom_field_definition_id)->first();
+            if (!$exists) {
+                // Reassign the value to master
+                $sv->contact_id = $master->id;
+                $sv->source_contact_id = $secondary->id;
+                $sv->save();
+            } elseif ($append && $exists->value !== $sv->value) {
+                // Keep master value, but append secondary as a new value record with source_contact_id
+                ContactCustomFieldValue::create([
+                    'contact_id' => $master->id,
+                    'custom_field_definition_id' => $sv->custom_field_definition_id,
+                    'value' => $sv->value,
+                    'source_contact_id' => $secondary->id,
+                ]);
+            }
+        }
+
+        // Mark secondary as merged (don't delete)
+        $secondary->is_merged = true;
+        $secondary->merged_to_id = $master->id;
+        $secondary->save();
+
+        // Save master after changes
+        $master->save();
+
+        return response()->json(['success' => true, 'message' => 'Merge completed successfully']);
     }
 
     public function destroy($id)
