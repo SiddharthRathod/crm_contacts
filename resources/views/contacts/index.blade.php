@@ -70,7 +70,7 @@
                                                     <div id="merge_preview"></div>
                                                 </div>
                                                 <div class="modal-footer">
-                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" aria-label="Close">Cancel</button>
                                                     <button type="button" class="btn btn-danger" id="confirm_merge">Confirm Merge</button>
                                                 </div>
                                             </div>
@@ -151,9 +151,28 @@
                         html += '<div><strong>Custom Fields present in secondary that master lacks or differ:</strong><ul>';
                         const mCustom = master.custom_fields || {};
                         const sCustom = secondary.custom_fields || {};
-                        for (const k in sCustom) {
-                            if (!mCustom[k]) html += `<li>${k}: ${sCustom[k]}</li>`;
-                            else if (mCustom[k] != sCustom[k]) html += `<li>${k}: Master=${mCustom[k]} | Secondary=${sCustom[k]}</li>`;
+                        const processedFields = new Set();
+                        
+                        for (const fieldName in sCustom) {
+                            processedFields.add(fieldName);
+                            const masterValues = mCustom[fieldName] || [];
+                            const secondaryValues = sCustom[fieldName] || [];
+                            
+                            const masterValStr = masterValues.map(v => v.value).join(', ');
+                            const secondaryValStr = secondaryValues.map(v => v.value).join(', ');
+                            
+                            if (!mCustom[fieldName]) {
+                                html += `<li><strong>${fieldName}:</strong> ${secondaryValStr}</li>`;
+                            } else if (masterValStr !== secondaryValStr) {
+                                html += `<li><strong>${fieldName}:</strong> Master=[${masterValStr}] | Secondary=[${secondaryValStr}]</li>`;
+                            }
+                        }                        
+                        for (const fieldName in mCustom) {
+                            if (!processedFields.has(fieldName)) {
+                                const masterValues = mCustom[fieldName] || [];
+                                const masterValStr = masterValues.map(v => v.value).join(', ');
+                                html += `<li><strong>${fieldName}:</strong> ${masterValStr}</li>`;
+                            }
                         }
                         html += '</ul></div>';
                         document.getElementById('merge_preview').innerHTML = html;
@@ -167,7 +186,9 @@
                     const res = await fetch(url, { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest','X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content}, body: fd });
                     const data = await res.json();
                     if (data.success) {
-                        // Reload the page to reflect merge
+                        // Close the modal before reloading
+                        const mergeModal = bootstrap.Modal.getInstance(document.getElementById('mergeModal'));
+                        if (mergeModal) mergeModal.hide();
                         location.reload();
                     } else {
                         alert(data.message || 'Merge failed');
