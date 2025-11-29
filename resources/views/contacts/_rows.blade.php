@@ -1,4 +1,4 @@
-<table border="1" width="100%">
+<table border="1" width="100%" cellpadding="5" cellspacing="0" class="table table-striped">
     <thead>
         <tr>
             <th>#</th>

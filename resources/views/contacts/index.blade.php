@@ -15,8 +15,32 @@
                             </div>
                         @endif
                                 @if(count($contacts) > 0) 
+                                    <div class="mb-3">
+                                        <div class="row g-2">
+                                            <div class="col-md-3">
+                                            <input id="filter_name" class="form-control" placeholder="Filter by name" value="{{ request('name') }}" />
+                                        </div>
+                                            <div class="col-md-3">
+                                            <input id="filter_email" class="form-control" placeholder="Filter by email" value="{{ request('email') }}" />
+                                        </div>
+                                            <div class="col-md-2">
+                                            <select id="filter_gender" class="form-select">
+                                                    <option value="">All genders</option>
+                                                <option value="male" {{ request('gender') == 'male' ? 'selected' : '' }}>Male</option>
+                                                <option value="female" {{ request('gender') == 'female' ? 'selected' : '' }}>Female</option>
+                                                <option value="other" {{ request('gender') == 'other' ? 'selected' : '' }}>Other</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <button id="filter_btn" class="btn btn-primary">Search</button>
+                                                <button id="reset_btn" class="btn btn-secondary">Reset</button>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div class="table-responsive">
-                                        @include('contacts._rows')
+                                        <div id="contacts_table">
+                                            @include('contacts._rows')
+                                        </div>
                                     </div>
                                     <!-- Merge Modal-->
                                     <div class="modal fade" id="mergeModal" tabindex="-1" aria-hidden="true">
@@ -39,8 +63,8 @@
                                                                     </select>
                                                             </div>
                                                             <div class="form-check mb-3">
-                                                                    <input class="form-check-input" type="checkbox" value="1" id="append_values" checked name="append_values">
-                                                                    <label class="form-check-label" for="append_values">Append differing values as additional fields (don’t overwrite master)</label>
+                                                                <input class="form-check-input" type="checkbox" value="1" id="append_values" checked name="append_values">
+                                                                <label class="form-check-label" for="append_values">Append differing values as additional fields (don’t overwrite master)</label>
                                                             </div>
                                                     </form>
                                                     <div id="merge_preview"></div>
@@ -127,29 +151,9 @@
                         html += '<div><strong>Custom Fields present in secondary that master lacks or differ:</strong><ul>';
                         const mCustom = master.custom_fields || {};
                         const sCustom = secondary.custom_fields || {};
-                        const processedFields = new Set();
-                        
-                        for (const fieldName in sCustom) {
-                            processedFields.add(fieldName);
-                            const masterValues = mCustom[fieldName] || [];
-                            const secondaryValues = sCustom[fieldName] || [];
-                            
-                            const masterValStr = masterValues.map(v => v.value).join(', ');
-                            const secondaryValStr = secondaryValues.map(v => v.value).join(', ');
-                            
-                            if (!mCustom[fieldName]) {
-                                html += `<li><strong>${fieldName}:</strong> ${secondaryValStr}</li>`;
-                            } else if (masterValStr !== secondaryValStr) {
-                                html += `<li><strong>${fieldName}:</strong> Master=[${masterValStr}] | Secondary=[${secondaryValStr}]</li>`;
-                            }
-                        }
-                        
-                        for (const fieldName in mCustom) {
-                            if (!processedFields.has(fieldName)) {
-                                const masterValues = mCustom[fieldName] || [];
-                                const masterValStr = masterValues.map(v => v.value).join(', ');
-                                html += `<li><strong>${fieldName}:</strong> ${masterValStr}</li>`;
-                            }
+                        for (const k in sCustom) {
+                            if (!mCustom[k]) html += `<li>${k}: ${sCustom[k]}</li>`;
+                            else if (mCustom[k] != sCustom[k]) html += `<li>${k}: Master=${mCustom[k]} | Secondary=${sCustom[k]}</li>`;
                         }
                         html += '</ul></div>';
                         document.getElementById('merge_preview').innerHTML = html;
@@ -170,6 +174,77 @@
                     }
                 });
             });
+
+                // Filtering: AJAX search and pagination
+                async function searchContacts(page = 1) {
+                    const name = document.getElementById('filter_name').value;
+                    const email = document.getElementById('filter_email').value;
+                    const gender = document.getElementById('filter_gender').value;
+                    const params = new URLSearchParams({name, email, gender, page});
+                    const res = await fetch('/contacts?' + params.toString(), {headers: {'X-Requested-With':'XMLHttpRequest'}});
+                    if (res.ok) {
+                        const html = await res.text();
+                        document.getElementById('contacts_table').innerHTML = html;
+                        hookPaginationLinks();
+                        hookMergeButtons();
+                    }
+                }
+
+                // Hook the filter controls
+                document.getElementById('filter_btn').addEventListener('click', function(e){
+                    e.preventDefault();
+                    searchContacts();
+                });
+                document.getElementById('reset_btn').addEventListener('click', function(e){
+                    e.preventDefault();
+                    document.getElementById('filter_name').value = '';
+                    document.getElementById('filter_email').value = '';
+                    document.getElementById('filter_gender').value = '';
+                    searchContacts();
+                });
+
+                // Trigger search on Enter key in fields
+                ['filter_name','filter_email'].forEach(id=>{
+                    const el = document.getElementById(id);
+                    if (el) el.addEventListener('keypress', function(e){ if (e.key === 'Enter') { e.preventDefault(); searchContacts(); } });
+                });
+
+                // Pagination links in AJAX loaded content
+                function hookPaginationLinks() {
+                    document.querySelectorAll('#contacts_table .pagination a').forEach(link => {
+                        link.addEventListener('click', function(e){
+                            e.preventDefault();
+                            const url = new URL(this.href);
+                            const page = url.searchParams.get('page') || 1;
+                            searchContacts(page);
+                        });
+                    });
+                }
+
+                // Hook merge buttons for AJAX loaded content
+                function hookMergeButtons(){
+                    document.querySelectorAll('#contacts_table .btn-merge').forEach(function(btn) {
+                        if (btn.dataset.hooked) return; // only hook once
+                        btn.dataset.hooked = true;
+                        btn.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            const secondaryId = this.dataset.id;
+                            document.getElementById('secondary_id').value = secondaryId;
+                            const masterSelect = document.getElementById('master_id');
+                            masterSelect.querySelectorAll('option').forEach(o=>o.disabled=false);
+                            const opt = masterSelect.querySelector('option[value="'+secondaryId+'"]');
+                            if (opt) opt.disabled = true;
+                            masterSelect.value = '';
+                            document.getElementById('merge_preview').innerHTML = '<p>Select a master contact to preview the merge.</p>';
+                            var mergeModal = new bootstrap.Modal(document.getElementById('mergeModal'));
+                            mergeModal.show();
+                        });
+                    });
+                }
+
+                // Initially hook pagination and merge buttons
+                hookPaginationLinks();
+                hookMergeButtons();
         </script>
     @endpush
 </x-app-layout>
